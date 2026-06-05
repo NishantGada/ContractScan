@@ -15,6 +15,17 @@ def get_supabase() -> Client:
     return create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
 
 
+def create_auth_client() -> Client:
+    """A fresh (uncached) client for auth flows.
+
+    `sign_up` / `sign_in_with_password` persist the resulting session on the
+    client instance, so they must NOT run on the shared singleton — otherwise
+    one user's session could bleed into a concurrent request. Each auth request
+    gets its own short-lived client.
+    """
+    return create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+
+
 def check_connection() -> str:
     """Lightweight connectivity probe used by the health check.
 
