@@ -20,8 +20,8 @@ export default function LoginPage() {
   const location = useLocation()
   const from = (location.state as { from?: string } | null)?.from ?? '/'
 
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [email, setEmail] = useState('test@gmail.com')
+  const [password, setPassword] = useState('qweqweqwe')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 

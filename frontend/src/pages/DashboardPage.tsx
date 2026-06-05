@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 
 import { useAuth } from '@/hooks/useAuth'
@@ -11,6 +12,7 @@ import { Dialog } from '@/components/ui/dialog'
 
 export default function DashboardPage() {
   const { user, logout } = useAuth()
+  const navigate = useNavigate()
   const { vendors, loading, error, createVendor, updateVendor, deleteVendor } = useVendors()
 
   const [formOpen, setFormOpen] = useState(false)
@@ -69,7 +71,7 @@ export default function DashboardPage() {
       </header>
 
       <div className="mx-auto flex max-w-6xl">
-        <Sidebar vendors={vendors} />
+        <Sidebar vendors={vendors} onSelect={(v) => navigate(`/vendors/${v.id}`)} />
 
         <main className="flex-1 px-6 py-10">
           <div className="flex items-center justify-between">

@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from '@/hooks/useAuth'
 import DashboardPage from '@/pages/DashboardPage'
 import LoginPage from '@/pages/LoginPage'
 import RegisterPage from '@/pages/RegisterPage'
+import VendorDetailPage from '@/pages/VendorDetailPage'
 
 /** Full-screen placeholder shown while the initial session is hydrating. */
 function AuthLoading() {
@@ -58,6 +59,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <DashboardPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/vendors/:vendorId"
+        element={
+          <ProtectedRoute>
+            <VendorDetailPage />
           </ProtectedRoute>
         }
       />

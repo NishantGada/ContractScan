@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import check_connection
-from app.routers import auth, vendors
+from app.routers import auth, contracts, vendors
 
 app = FastAPI(title="ContractScan API", version="0.1.0")
 
@@ -19,6 +19,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(vendors.router)
+app.include_router(contracts.router)
 
 
 @app.get("/health")

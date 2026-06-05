@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { ExternalLink, Pencil, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -25,9 +26,12 @@ export function VendorCard({ vendor, onEdit, onDelete }: VendorCardProps) {
             title="Risk level pending analysis"
             aria-label="Risk level: not yet analyzed"
           />
-          <h3 className="font-display text-lg font-semibold leading-tight text-text-primary">
+          <Link
+            to={`/vendors/${vendor.id}`}
+            className="font-display text-lg font-semibold leading-tight text-text-primary hover:text-primary hover:underline"
+          >
             {vendor.name}
-          </h3>
+          </Link>
         </div>
         <div className="flex items-center gap-1">
           <Button
