@@ -23,8 +23,11 @@ export default function VendorDetailPage() {
     contracts,
     loading: contractsLoading,
     error,
+    clauseRisks,
     uploadContract,
     deleteContract,
+    analyzeContract,
+    loadAnalysis,
   } = useContracts(vendorId)
 
   const [pendingDelete, setPendingDelete] = useState<Contract | null>(null)
@@ -139,7 +142,13 @@ export default function VendorDetailPage() {
                       {error}
                     </p>
                   ) : (
-                    <ContractList contracts={contracts} onDelete={setPendingDelete} />
+                    <ContractList
+                      contracts={contracts}
+                      clauseRisks={clauseRisks}
+                      onDelete={setPendingDelete}
+                      onAnalyze={analyzeContract}
+                      onExpand={loadAnalysis}
+                    />
                   )}
                 </div>
               </section>

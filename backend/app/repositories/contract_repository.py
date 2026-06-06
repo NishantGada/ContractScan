@@ -85,6 +85,20 @@ class ContractRepository:
         )
         return result.data[0] if result.data else None
 
+    def save_raw_text(self, user_id: str, contract_id: str, raw_text: str) -> None:
+        """Persist the extracted contract text for a user-owned contract.
+
+        `raw_text` lives in the DB only — it is never selected into a response
+        (see `_COLUMNS`) and never returned to a client.
+        """
+        (
+            self._client.table("contracts")
+            .update({"raw_text": raw_text})
+            .eq("id", contract_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+
     def delete(self, user_id: str, contract_id: str) -> bool:
         """Delete a user-owned contract row. Returns True if a row was removed.
 

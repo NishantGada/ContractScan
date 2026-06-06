@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python -c \"import app.main; print\\('backend imports OK'\\); print\\([r.path for r in app.main.app.routes if 'analy' in r.path or 'contract' in r.path]\\)\")",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/health)"
+    ]
+  }
+}

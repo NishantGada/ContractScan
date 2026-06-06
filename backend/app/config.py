@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     ALLOWED_ORIGINS: str = "http://localhost:5173"
 
+    # When true, gemini_analyzer skips the real two-pass API calls and returns a
+    # fixed set of clause risks. Lets the full pipeline (extract → persist →
+    # status → poll → UI) be exercised without consuming Gemini quota. Defaults
+    # off so production behavior is the real analysis.
+    USE_MOCK_GEMINI: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
