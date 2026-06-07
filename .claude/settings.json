@@ -6,7 +6,13 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/health)",
       "Bash(python3 -m py_compile app/routers/vendors.py app/schemas/vendor.py app/repositories/clause_risk_repository.py)",
       "Bash(python3 -c \"import fastapi\")",
-      "Bash(python3 -c \"from app.routers import vendors; print\\('routes:', [r.path for r in vendors.router.routes]\\)\")"
+      "Bash(python3 -c \"from app.routers import vendors; print\\('routes:', [r.path for r in vendors.router.routes]\\)\")",
+      "Bash(python -c \"import ast,glob; [ast.parse\\(open\\(f\\).read\\(\\),f\\) for f in glob.glob\\('app/**/*.py',recursive=True\\)]; print\\('syntax ok'\\)\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(rm src/components/vendors/VendorCard.tsx)",
+      "Bash(echo \"grep-exit: $?\")",
+      "Bash(python -c \"from app.main import app; print\\('routes:', [r.path for r in app.routes if 'dashboard' in r.path]\\)\")",
+      "Bash(.venv/bin/python -c \"from app.main import app; print\\('dashboard routes:', [\\(r.path, list\\(r.methods\\)\\) for r in app.routes if r.path.startswith\\('/dashboard'\\)]\\)\")"
     ]
   }
 }

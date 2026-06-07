@@ -4,16 +4,28 @@ import { Plus } from 'lucide-react'
 
 import { useAuth } from '@/hooks/useAuth'
 import { useVendors, type Vendor, type VendorInput } from '@/hooks/useVendors'
+import { useDashboard } from '@/hooks/useDashboard'
 import { Sidebar } from '@/components/layout/Sidebar'
-import { VendorCard } from '@/components/vendors/VendorCard'
+import { VendorRiskRow } from '@/components/vendors/VendorRiskRow'
 import { VendorForm } from '@/components/vendors/VendorForm'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 
+// Headline stats shown across the top of the portfolio overview.
+const STATS = [
+  { key: 'total_vendors', label: 'Vendors' },
+  { key: 'total_contracts', label: 'Contracts' },
+  { key: 'high_risk_clauses', label: 'High-risk clauses' },
+] as const
+
 export default function DashboardPage() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  const { vendors, loading, error, createVendor, updateVendor, deleteVendor } = useVendors()
+  // useDashboard drives the ranked portfolio view; useVendors owns the sidebar
+  // list and the create/edit/delete mutations. After any mutation we refetch the
+  // dashboard so risk rankings and totals stay in sync.
+  const { vendors, createVendor, updateVendor, deleteVendor } = useVendors()
+  const { dashboard, loading, error, refetch } = useDashboard()
 
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<Vendor | null>(null)
@@ -36,6 +48,7 @@ export default function DashboardPage() {
     } else {
       await createVendor(input)
     }
+    await refetch()
   }
 
   async function confirmDelete() {
@@ -43,11 +56,15 @@ export default function DashboardPage() {
     setDeleting(true)
     try {
       await deleteVendor(pendingDelete.id)
+      await refetch()
       setPendingDelete(null)
     } finally {
       setDeleting(false)
     }
   }
+
+  const totals = dashboard?.totals
+  const rankedVendors = dashboard?.vendors ?? []
 
   return (
     <div className="min-h-svh bg-background">
@@ -77,10 +94,10 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="font-display text-3xl font-semibold tracking-tight text-text-primary">
-                Vendors
+                Portfolio
               </h1>
               <p className="mt-1 text-text-muted">
-                Track the vendors whose contracts you want to analyze.
+                Your vendors ranked by contract risk — highest first.
               </p>
             </div>
             <Button onClick={openCreate}>
@@ -89,14 +106,31 @@ export default function DashboardPage() {
             </Button>
           </div>
 
+          {/* Headline stats */}
+          <section className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {STATS.map(({ key, label }) => (
+              <div
+                key={key}
+                className="rounded-lg border border-border bg-surface px-5 py-4"
+              >
+                <p className="font-mono text-xs uppercase tracking-wide text-text-muted">
+                  {label}
+                </p>
+                <p className="mt-1 font-display text-3xl font-semibold text-text-primary">
+                  {totals ? totals[key] : '—'}
+                </p>
+              </div>
+            ))}
+          </section>
+
           <section className="mt-8">
             {loading ? (
-              <p className="text-sm text-text-muted">Loading vendors…</p>
+              <p className="text-sm text-text-muted">Loading portfolio…</p>
             ) : error ? (
               <p role="alert" className="text-sm text-risk-high">
                 {error}
               </p>
-            ) : vendors.length === 0 ? (
+            ) : rankedVendors.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border bg-surface px-6 py-16 text-center">
                 <h2 className="font-display text-xl font-medium text-text-primary">
                   No vendors yet
@@ -111,11 +145,11 @@ export default function DashboardPage() {
                 </Button>
               </div>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {vendors.map((vendor) => (
-                  <VendorCard
-                    key={vendor.id}
-                    vendor={vendor}
+              <div className="flex flex-col gap-4">
+                {rankedVendors.map((entry) => (
+                  <VendorRiskRow
+                    key={entry.vendor.id}
+                    entry={entry}
                     onEdit={openEdit}
                     onDelete={setPendingDelete}
                   />

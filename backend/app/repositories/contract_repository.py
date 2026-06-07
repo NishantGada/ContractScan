@@ -48,6 +48,21 @@ class ContractRepository:
         )
         return result.data
 
+    def get_all_by_user(self, user_id: str) -> list[dict]:
+        """Every contract the user owns, across all vendors, newest upload first.
+
+        Feeds the portfolio dashboard, which groups these by `vendor_id` in
+        memory rather than issuing one query per vendor.
+        """
+        result = (
+            self._client.table("contracts")
+            .select(_COLUMNS)
+            .eq("user_id", user_id)
+            .order("uploaded_at", desc=True)
+            .execute()
+        )
+        return result.data
+
     def get_by_id(self, user_id: str, contract_id: str) -> dict | None:
         """A single contract, only if it belongs to the user. Else None.
 

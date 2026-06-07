@@ -73,6 +73,22 @@ class ClauseRiskRepository:
         )
         return result.data
 
+    def get_all_by_user(self, user_id: str) -> list[dict]:
+        """Every clause risk the user owns, across all contracts, oldest first.
+
+        Feeds the portfolio dashboard roll-up: the caller groups these by
+        `contract_id` (then by vendor) in memory, so the whole dashboard costs a
+        fixed three queries rather than one per vendor.
+        """
+        result = (
+            self._client.table("clause_risks")
+            .select(_COLUMNS)
+            .eq("user_id", user_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+        return result.data
+
     def delete_by_contract(self, user_id: str, contract_id: str) -> None:
         """Clear a contract's existing clause risks before a (re-)analysis, so a
         rerun never leaves stale rows behind. Scoped to the owner."""
