@@ -3,7 +3,10 @@ import { ExternalLink, Pencil, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 import type { Vendor } from '@/hooks/useVendors'
+import type { RiskSeverity } from '@/hooks/useContracts'
+import { useVendorRisk, type VendorRiskSummary } from '@/hooks/useVendorRisk'
 
 interface VendorCardProps {
   vendor: Vendor
@@ -11,20 +14,44 @@ interface VendorCardProps {
   onDelete: (vendor: Vendor) => void
 }
 
+// Dot color + accessible label per overall risk level. Colors come only from
+// the semantic risk-* tokens.
+const RISK_DOT: Record<RiskSeverity, { color: string; label: string }> = {
+  high: { color: 'bg-risk-high', label: 'High risk' },
+  medium: { color: 'bg-risk-medium', label: 'Medium risk' },
+  low: { color: 'bg-risk-low', label: 'Low risk' },
+}
+
+// Resolve a vendor's summary to a single dot. Null = still loading; a vendor
+// with no contracts is "not analyzed" (neutral), not low-risk.
+function resolveDot(
+  summary: VendorRiskSummary | null,
+): { color: string; label: string } {
+  if (summary === null) {
+    return { color: 'bg-border animate-pulse', label: 'Loading risk level' }
+  }
+  if (summary.total_contracts === 0) {
+    return { color: 'bg-text-muted/40', label: 'No contracts analyzed yet' }
+  }
+  return RISK_DOT[summary.overall]
+}
+
 /**
- * Vendor summary tile. The risk indicator is a placeholder for now — always
- * green; Feature 7 wires it to real per-vendor risk data.
+ * Vendor summary tile. The risk indicator reflects the vendor's real rolled-up
+ * risk level (red/amber/green), fetched per card via useVendorRisk.
  */
 export function VendorCard({ vendor, onEdit, onDelete }: VendorCardProps) {
+  const { summary } = useVendorRisk(vendor.id)
+  const dot = resolveDot(summary)
+
   return (
     <Card className="flex flex-col p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          {/* Placeholder risk indicator — green until Feature 7. */}
           <span
-            className="h-2.5 w-2.5 shrink-0 rounded-full bg-risk-low"
-            title="Risk level pending analysis"
-            aria-label="Risk level: not yet analyzed"
+            className={cn('h-2.5 w-2.5 shrink-0 rounded-full', dot.color)}
+            title={dot.label}
+            aria-label={`Risk level: ${dot.label}`}
           />
           <Link
             to={`/vendors/${vendor.id}`}

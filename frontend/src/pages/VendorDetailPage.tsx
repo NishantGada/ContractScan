@@ -1,13 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ExternalLink } from 'lucide-react'
 
 import { useAuth } from '@/hooks/useAuth'
 import { useVendors } from '@/hooks/useVendors'
 import { useContracts, type Contract } from '@/hooks/useContracts'
+import { useVendorRisk } from '@/hooks/useVendorRisk'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { ContractUpload } from '@/components/contracts/ContractUpload'
 import { ContractList } from '@/components/contracts/ContractList'
+import { RiskSummaryBar } from '@/components/analysis/RiskSummaryBar'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 
@@ -29,6 +31,27 @@ export default function VendorDetailPage() {
     analyzeContract,
     loadAnalysis,
   } = useContracts(vendorId)
+
+  const { summary, refetch: refetchRisk } = useVendorRisk(vendorId)
+
+  // The risk summary is a server-side roll-up that doesn't update itself, so
+  // refetch it whenever a contract is added, removed, or finishes analysis. The
+  // signature captures exactly those transitions; the ref skips the first run so
+  // the hook's own initial fetch isn't immediately duplicated.
+  const analysisSignature = contracts
+    .map((c) => `${c.id}:${c.status}:${c.analyzed_at ?? ''}`)
+    .join('|')
+  const prevSignatureRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (prevSignatureRef.current === null) {
+      prevSignatureRef.current = analysisSignature
+      return
+    }
+    if (prevSignatureRef.current !== analysisSignature) {
+      prevSignatureRef.current = analysisSignature
+      void refetchRisk()
+    }
+  }, [analysisSignature, refetchRisk])
 
   const [pendingDelete, setPendingDelete] = useState<Contract | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -120,6 +143,15 @@ export default function VendorDetailPage() {
                   </a>
                 )}
               </div>
+
+              {summary && (
+                <RiskSummaryBar
+                  className="mt-8"
+                  high={summary.high}
+                  medium={summary.medium}
+                  low={summary.low}
+                />
+              )}
 
               <section className="mt-8">
                 <h2 className="font-display text-lg font-semibold text-text-primary">

@@ -9,8 +9,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.database import get_supabase
 from app.dependencies import get_current_user
+from app.repositories.clause_risk_repository import ClauseRiskRepository
+from app.repositories.contract_repository import ContractRepository
 from app.repositories.vendor_repository import VendorRepository
-from app.schemas.vendor import VendorCreate, VendorResponse, VendorUpdate
+from app.schemas.vendor import (
+    VendorCreate,
+    VendorResponse,
+    VendorRiskSummaryResponse,
+    VendorUpdate,
+)
+from app.services.risk_aggregator import aggregate
 
 router = APIRouter(prefix="/vendors", tags=["vendors"])
 
@@ -19,12 +27,55 @@ def get_vendor_repository() -> VendorRepository:
     return VendorRepository(get_supabase())
 
 
+def get_contract_repository() -> ContractRepository:
+    return ContractRepository(get_supabase())
+
+
+def get_clause_risk_repository() -> ClauseRiskRepository:
+    return ClauseRiskRepository(get_supabase())
+
+
 @router.get("", response_model=list[VendorResponse])
 def list_vendors(
     user_id: str = Depends(get_current_user),
     repo: VendorRepository = Depends(get_vendor_repository),
 ) -> list[dict]:
     return repo.get_all_by_user(user_id)
+
+
+@router.get("/{vendor_id}/risk-summary", response_model=VendorRiskSummaryResponse)
+def vendor_risk_summary(
+    vendor_id: str,
+    user_id: str = Depends(get_current_user),
+    repo: VendorRepository = Depends(get_vendor_repository),
+    contract_repo: ContractRepository = Depends(get_contract_repository),
+    clause_repo: ClauseRiskRepository = Depends(get_clause_risk_repository),
+) -> dict:
+    """Roll up every clause risk across a vendor's contracts.
+
+    Confirm ownership first (a vendor that isn't theirs is a clean 404), then
+    resolve the vendor to its user-scoped contract ids and aggregate the clause
+    risks found across them.
+    """
+    vendor = repo.get_by_id(user_id, vendor_id)
+    if vendor is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vendor not found")
+
+    contracts = contract_repo.get_all_by_vendor(user_id, vendor_id)
+    contract_ids = [c["id"] for c in contracts]
+    risks = clause_repo.get_all_by_contracts(user_id, contract_ids)
+    summary = aggregate(risks)
+
+    return {
+        "vendor_id": vendor_id,
+        "total_contracts": len(contracts),
+        "high": summary["high"],
+        "medium": summary["medium"],
+        "low": summary["low"],
+        "total_risks": summary["total"],
+        "overall": summary["overall"],
+        "clause_risks": risks,
+    }
 
 
 @router.post("", response_model=VendorResponse, status_code=status.HTTP_201_CREATED)

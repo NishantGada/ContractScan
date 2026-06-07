@@ -8,7 +8,9 @@ import { cn } from '@/lib/utils'
 import { CONTRACT_TYPES, type ContractType } from '@/hooks/useContracts'
 
 interface ContractUploadProps {
-  onUpload: (input: { file: File; contractType: ContractType | null }) => Promise<void>
+  // The component awaits this but ignores its resolved value, so a handler that
+  // returns the created contract (useContracts.uploadContract) is accepted too.
+  onUpload: (input: { file: File; contractType: ContractType | null }) => Promise<unknown>
 }
 
 const MAX_BYTES = 50 * 1024 * 1024 // mirror the backend's 50MB limit

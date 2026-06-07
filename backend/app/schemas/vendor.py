@@ -10,6 +10,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.clause_risk import ClauseRiskResponse, RiskSeverity
+
 # Mirror the `category` CHECK constraint in the Supabase schema.
 VendorCategory = Literal["SaaS", "Legal", "Infrastructure", "Finance", "Other"]
 
@@ -38,3 +40,23 @@ class VendorResponse(BaseModel):
     website: str | None = None
     category: VendorCategory | None = None
     created_at: datetime
+
+
+class VendorRiskSummaryResponse(BaseModel):
+    """Returned by GET /vendors/{id}/risk-summary.
+
+    Rolls up every clause risk across all of a vendor's contracts: per-severity
+    counts, a single worst-wins `overall` level, and the full clause-risk list so
+    the dashboard can render each one without a second round-trip. With no risks,
+    `overall` is "low" (the aggregator's empty case); the UI decides how to show a
+    vendor that hasn't been analyzed yet.
+    """
+
+    vendor_id: str
+    total_contracts: int
+    high: int
+    medium: int
+    low: int
+    total_risks: int
+    overall: RiskSeverity
+    clause_risks: list[ClauseRiskResponse]

@@ -51,6 +51,28 @@ class ClauseRiskRepository:
         )
         return result.data
 
+    def get_all_by_contracts(
+        self, user_id: str, contract_ids: list[str]
+    ) -> list[dict]:
+        """All clause risks across several contracts the user owns, oldest first.
+
+        Feeds the vendor risk-summary roll-up: the caller resolves a vendor to
+        its contract ids (already user-scoped) and passes them here. The
+        `user_id` filter stays on as defense in depth. Short-circuits an empty id
+        list rather than issuing an `in_()` against nothing.
+        """
+        if not contract_ids:
+            return []
+        result = (
+            self._client.table("clause_risks")
+            .select(_COLUMNS)
+            .eq("user_id", user_id)
+            .in_("contract_id", contract_ids)
+            .order("created_at", desc=False)
+            .execute()
+        )
+        return result.data
+
     def delete_by_contract(self, user_id: str, contract_id: str) -> None:
         """Clear a contract's existing clause risks before a (re-)analysis, so a
         rerun never leaves stale rows behind. Scoped to the owner."""
