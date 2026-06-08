@@ -1,270 +1,284 @@
 # ContractScan
 
-**AI-powered vendor contract risk analyzer.** Upload vendor contracts, get plain-English risk breakdowns, and manage your legal exposure across your entire vendor portfolio — all in one place.
+Upload a vendor contract, get back a plain-English breakdown of the clauses that could hurt you — and see which of your vendors carry the most risk overall.
 
 ---
 
-## What This Is
+## The problem
 
-Most companies sign dozens of SaaS agreements, NDAs, and vendor contracts every year. The details — auto-renewal clauses, data ownership terms, asymmetric liability caps — get buried in legal boilerplate that nobody reads until something goes wrong.
+Companies sign a lot of contracts: SaaS subscriptions, NDAs, MSAs, statements of work. The clauses that matter — auto-renewals with a tiny cancellation window, liability capped at one month's fees, the vendor's right to raise prices whenever they like — are buried in pages of legal text nobody reads until it's too late.
 
-ContractScan fixes that. You upload a contract PDF, and the system extracts every clause that could bite you, explains what it means in plain English, assigns it a risk severity, and tells you what to do about it. Across multiple contracts per vendor, it builds a risk profile so you can see which vendor relationships carry the most legal exposure.
-
-It is built to be demoed, extended, and understood. Every technical decision in this document has a reason.
+ContractScan reads the contract for you. You upload a PDF, and it pulls out the risky clauses, explains each one in a sentence or two, rates how serious it is, and suggests what to do. Do that across all of a vendor's contracts and you get a picture of which vendor relationships are the most exposed.
 
 ---
 
-## Feature Overview
+## What it does
 
-- Multi-user authentication with secure session management
-- Per-user data isolation — users only ever see their own vendors and contracts
-- Vendor management with risk scoring derived from their contracts
-- PDF upload and text extraction for text-based contracts
-- Two-pass AI analysis: clause identification followed by risk reasoning
-- Risk dashboard per vendor showing all flagged clauses with severity, plain-English summary, original text, and recommendation
-- Portfolio overview ranking all vendors by aggregate risk
-- Secure file storage with UUID-based paths and no exposed filenames
+- Sign up, log in — each account only ever sees its own data
+- Add vendors and the contracts that belong to them
+- Upload contract PDFs; the text gets extracted and analyzed
+- See every flagged clause with a severity (high / medium / low), a short summary, the original text, and a recommendation
+- A dashboard that ranks all your vendors by how much risk their contracts add up to
 
 ---
 
-## Tech Stack
+## How it's built
 
 ### Backend — FastAPI (Python)
 
-FastAPI was chosen over Flask or Django for three reasons: native async support (important for non-blocking Gemini API calls during PDF analysis), automatic OpenAPI documentation generation, and first-class Pydantic integration for request/response validation. For a project where the heaviest operation is waiting on an external AI API, async matters.
+The slowest thing this app does is wait on an LLM API, so async matters — FastAPI handles that cleanly without extra machinery. It also gives you request/response validation through Pydantic and auto-generated API docs for free. Flask would need add-ons for both; Django is more than a project this size needs.
 
 ### Frontend — React + TypeScript + Vite
 
-React with TypeScript is the right default for a dashboard application. TypeScript catches contract mismatches between the frontend and backend early, and Vite's dev server is significantly faster than Create React App for iteration. No Next.js — server-side rendering adds complexity that a single-user dashboard does not need.
+A dashboard is a good fit for React, and TypeScript catches mismatches between what the backend sends and what the frontend expects before they become runtime bugs. Vite keeps the dev server fast. No Next.js — there's no need for server-side rendering here.
 
-### Styling — Tailwind CSS + shadcn/ui
+### Styling — Tailwind + shadcn/ui
 
-Tailwind solves the "change the color palette without touching 100 files" problem directly. The entire visual theme lives in `tailwind.config.ts` as CSS custom properties. Swap the primary color there and the entire application updates. shadcn/ui provides accessible, unstyled-by-default components that work with Tailwind without fighting it. This combination produces professional UI without a design system from scratch.
+All the colors, fonts, and spacing live as tokens in `tailwind.config.ts`. Change the palette there and the whole app follows, because components reference names like `primary` and `risk-high`, never raw values like `blue-500`. shadcn/ui gives accessible components that don't fight Tailwind.
 
-### Database — PostgreSQL via Supabase
+### Database & storage — Supabase (PostgreSQL)
 
-Supabase provides managed PostgreSQL with three features that matter here: Row Level Security (RLS) for enforcing per-user data isolation at the database level, built-in storage for contract PDFs, and a generous free tier. RLS means that even if application-level auth has a bug, the database itself refuses to return another user's data. That is defense in depth.
+Supabase is managed Postgres plus file storage plus auth, all on a free tier that's plenty for this. The big win is Row Level Security: access rules live in the database itself, scoped to the logged-in user. Even if the application code had a bug, the database still won't hand one user another user's rows.
 
-### Authentication — Supabase Auth + JWT
+### Auth — Supabase Auth + JWT
 
-Supabase Auth handles user registration, login, and session management. It issues JWTs that the frontend sends on every request. The backend validates these tokens against Supabase's public keys on every protected endpoint. Passwords are never stored in the application — Supabase handles hashing (bcrypt) and salting. Refresh tokens are handled automatically by the Supabase client SDK on the frontend.
+Supabase handles registration, login, and password hashing — the app never stores a password. On login the frontend gets a JWT and sends it with every request; the backend checks it on every protected endpoint and pulls the user's ID from the verified token, never from the request body.
 
-### File Storage — Supabase Storage
+### File storage
 
-Contract PDFs are stored in a private Supabase Storage bucket. Files are saved under `{user_id}/{uuid}.pdf` — never the original filename, which could leak information or cause collisions. Supabase Storage enforces bucket-level policies so users can only access their own files. Signed URLs with short expiry are used for any file retrieval.
+PDFs go into a private Supabase bucket under `{user_id}/{uuid}.pdf`. The original filename is kept in the database for display only — it never touches the storage path, which avoids name collisions and stops anyone from guessing file locations.
 
-### AI Analysis — Google Gemini API (gemini-1.5-flash)
+### The AI part — pluggable LLM provider
 
-Gemini handles both passes of contract analysis. gemini-1.5-flash is the right model here: capable enough for nuanced legal clause interpretation, fast enough for interactive use, and free within generous daily limits (1,500 requests/day) with pay-as-you-go beyond that. Extended thinking is not needed — the task is structured extraction, not open-ended reasoning.
+This is the piece that changed most recently, so it's worth explaining.
+
+The analyzer doesn't talk to any specific AI vendor. It talks to a small interface — `LLMProvider` — with one method: `generate(prompt)`. Two implementations exist:
+
+- **Anthropic** (`claude-haiku-4-5`) — the default
+- **OpenAI** (`gpt-4o-mini`)
+
+Which one runs is decided by a single environment variable, `LLM_PROVIDER`. Set it to `anthropic` or `openai`, drop in the matching API key, and that's it — no code changes. A factory reads the variable and hands back the right provider; the analysis code never imports a vendor SDK directly. If you want to add a third provider later, you write one class and the rest of the app doesn't notice.
+
+Haiku is the default because the job is fast, structured extraction rather than deep reasoning — it's quick, cheap, and good enough for reading clauses.
+
+On startup the server logs which provider is active (or whether it's running in mock mode), so you always know what to expect from the logs.
+
+---
+
+## How the analysis works (two passes)
+
+The obvious approach is to throw the whole contract at the model and say "find the risky clauses and explain them." That holds up on short contracts and falls apart on long ones — the model starts missing clauses, mixing separate issues together, and returning messy output when it's asked to do too much at once.
+
+So it's split into two steps:
+
+**Pass 1 — find the clauses.** Send the full contract. Ask only for the clauses that fall into the risk categories below, returned as a JSON list of `{ clause_type, original_text }`. The model is doing one thing: locating and labeling text.
+
+**Pass 2 — judge each clause.** Take each clause from pass 1 on its own and ask for a severity, a plain-English summary, and a recommendation. Again, one job: reasoning about one piece of text.
+
+Why bother:
+
+- Smaller, focused prompts give more reliable, better-structured output
+- If a clause gets missed, you know it's the extraction prompt that needs work, not the reasoning prompt
+- The pass-2 calls all run at once (async), so the total wait is pass 1 plus the slowest single clause — not pass 1 plus every clause added together
+- One bad clause doesn't sink the run: if pass 2 fails on a clause, it's logged and skipped, and the rest still come through
+
+The categories pass 1 looks for:
+
+- Auto-renewals, especially with short cancellation windows
+- Liability caps that are one-sided or unreasonably low
+- Who owns the data
+- The vendor's right to change pricing on their own
+- SLA promises with no penalty if they're broken
+- Termination-for-convenience that only one side gets
+- Lopsided indemnification
+- Surprising governing-law or jurisdiction clauses
+
+There's also a mock mode (`USE_MOCK_GEMINI=true`) that returns a fixed set of sample clauses without calling any API — handy for working on the rest of the pipeline without burning quota. (The name is a leftover from when this used Gemini.)
+
+---
+
+## A couple of safety details on the text
+
+PDF text is messy. Before any extracted text gets stored, two things happen in `pdf_extractor.py`:
+
+- **Null bytes are removed.** Postgres `text` columns reject `\x00` outright, so this would otherwise crash the insert.
+- **Other non-printable control characters are stripped** (keeping tabs, newlines, and carriage returns, which carry real layout).
+
+If a PDF turns out to be a scanned image with no extractable text, that's caught and the contract is marked `failed` instead of crashing the run.
 
 ---
 
 ## Architecture
 
 ```
-User (browser)
-    ↓ HTTPS
-React Frontend (Vercel)
-    ↓ REST API calls with JWT
-FastAPI Backend (Railway)
-    ↓                    ↓
-Supabase DB         Supabase Storage
-(PostgreSQL + RLS)  (Private bucket)
-    ↓
-Gemini API
-(Google)
+Browser
+   |  HTTPS
+React frontend (Vercel)
+   |  REST + JWT
+FastAPI backend (Railway)
+   |                    |
+Supabase Postgres   Supabase Storage
+(RLS per user)      (private bucket)
+   |
+LLM API
+(Anthropic or OpenAI, chosen by LLM_PROVIDER)
 ```
 
-The frontend and backend are deployed separately. This is standard practice — it lets you scale, redeploy, or swap either layer independently. The backend never trusts the frontend: every request is authenticated, every database query is scoped to the requesting user's ID.
+Frontend and backend deploy separately so either can be changed or scaled on its own. The backend treats the frontend as untrusted: every request is authenticated and every query is scoped to the user who made it.
 
 ---
 
-## Data Model
+## Data model
 
 ### Users
-Managed entirely by Supabase Auth. The application references `auth.users` by `user_id` (UUID) but never stores passwords or sensitive auth data in application tables.
+Handled by Supabase Auth. The app references users by `user_id` (UUID) and stores no passwords or auth secrets of its own.
 
 ### Vendors
 ```
-id            UUID, primary key
-user_id       UUID, foreign key → auth.users (indexed)
-name          TEXT, not null
-website       TEXT
-category      TEXT (SaaS / Legal / Infrastructure / Finance / Other)
-created_at    TIMESTAMPTZ, default now()
+id           UUID, primary key
+user_id      UUID  -> auth.users (indexed)
+name         TEXT, required
+website      TEXT
+category     TEXT  (SaaS / Legal / Infrastructure / Finance / Other)
+created_at   TIMESTAMPTZ
 ```
-Every vendor belongs to a user. RLS policy: `user_id = auth.uid()`.
+RLS policy: `user_id = auth.uid()`.
 
 ### Contracts
 ```
-id              UUID, primary key
-vendor_id       UUID, foreign key → vendors
-user_id         UUID, foreign key → auth.users (denormalized for RLS simplicity)
-filename        TEXT (original filename, display only)
-storage_path    TEXT (UUID-based path in Supabase Storage)
-contract_type   TEXT (NDA / MSA / SaaS Agreement / SOW / Other)
-status          ENUM: pending | analyzing | done | failed
-raw_text        TEXT (extracted from PDF, not exposed to frontend)
-uploaded_at     TIMESTAMPTZ
-analyzed_at     TIMESTAMPTZ
+id             UUID, primary key
+vendor_id      UUID  -> vendors
+user_id        UUID  -> auth.users
+filename       TEXT  (original name, display only)
+storage_path   TEXT  (UUID-based path in storage)
+contract_type  TEXT  (NDA / MSA / SaaS Agreement / SOW / Other)
+status         pending | analyzing | done | failed
+raw_text       TEXT  (extracted PDF text, never sent to the frontend)
+uploaded_at    TIMESTAMPTZ
+analyzed_at    TIMESTAMPTZ
 ```
-`user_id` is denormalized onto contracts (even though it could be derived via vendor) so RLS policies stay simple and fast — one column check per row, no joins in policy evaluation.
+`user_id` is duplicated onto contracts (instead of looking it up through the vendor) so the RLS check is a single column comparison with no join.
 
 ### ClauseRisks
 ```
-id               UUID, primary key
-contract_id      UUID, foreign key → contracts
-user_id          UUID, foreign key → auth.users (same reason as above)
-clause_type      TEXT (auto_renewal / liability_cap / data_ownership / etc.)
-severity         ENUM: high | medium | low
-summary          TEXT (plain English, 1–2 sentences)
-original_text    TEXT (verbatim from contract)
-recommendation   TEXT (what to do about it)
-created_at       TIMESTAMPTZ
+id              UUID, primary key
+contract_id     UUID  -> contracts
+user_id         UUID  -> auth.users
+clause_type     TEXT  (auto_renewal / liability_cap / data_ownership / ...)
+severity        high | medium | low
+summary         TEXT  (plain English, 1-2 sentences)
+original_text   TEXT  (verbatim from the contract)
+recommendation  TEXT  (what to do about it)
+created_at      TIMESTAMPTZ
 ```
 
 ---
 
-## The Two-Pass AI Analysis
+## Security notes
 
-This is the most important technical decision in the project and worth understanding clearly.
-
-A naive approach would send the entire contract to Gemini and ask it to "find all risky clauses and assess them." This works on short contracts but degrades on longer ones — the model starts to miss clauses, conflate separate issues, or produce inconsistently structured output when asked to do too much at once.
-
-The two-pass approach separates concerns:
-
-**Pass 1 — Extraction:** Send the full contract text. Ask Gemini to identify and extract verbatim text for any clause that falls into the defined risk categories. The only output is a JSON array of `{ clause_type, original_text }`. Gemini is doing one thing: finding and labeling text.
-
-**Pass 2 — Reasoning:** For each extracted clause, send just that clause in isolation. Ask Gemini to assess severity, write a plain-English summary, and provide a recommendation. Gemini is doing one thing: reasoning about a specific piece of text.
-
-Why this works better:
-- Smaller, focused prompts produce more reliable structured outputs
-- If Pass 1 misses a clause, you know the extraction prompt needs work, not the reasoning prompt
-- Pass 2 runs in parallel across all extracted clauses (async), so total latency is roughly: Pass 1 time + slowest single clause time, not Pass 1 + sum of all clauses
-- Failures are isolated — a bad PDF extraction fails at Pass 1, not partway through analysis
-
-The risk categories flagged in Pass 1:
-- Auto-renewal traps (especially short notice windows)
-- Liability caps (asymmetric or unreasonably low)
-- Data ownership and data sharing rights
-- Unilateral price change rights
-- SLA commitments with no financial penalty
-- Termination for convenience (who has it, who doesn't)
-- Indemnification asymmetry
-- Governing law and jurisdiction surprises
+- **Row Level Security** on every table, scoped to `auth.uid()` — the database is the last line of defense, not just the app.
+- **UUID storage paths** (`{user_id}/{uuid}.pdf`) so files can't be guessed or enumerated.
+- **JWT checked on every protected endpoint**, with the user ID taken from the verified token.
+- **`raw_text` never leaves the backend** — the frontend only ever gets the structured clause data.
+- **Secrets come from environment variables only.** Backend: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `LLM_PROVIDER`, and whichever of `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` matches the active provider. Frontend: `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (the anon key is safe to expose — it's rate-limited and gated by RLS).
+- **CORS is an explicit allow-list**, never `*`.
 
 ---
 
-## Security Decisions
+## Patterns worth pointing out
 
-**Row Level Security (RLS):** Every table has RLS enabled with policies that scope all operations to `auth.uid()`. This is database-level enforcement — application bugs cannot leak cross-user data.
+Three patterns earn their place here because they make the code simpler, not because patterns are nice to have:
 
-**UUID storage paths:** Contract files are stored as `{user_id}/{uuid4()}.pdf`. The original filename is stored in the database for display but never used in the storage path. This prevents enumeration attacks and path traversal.
-
-**JWT validation on every request:** The FastAPI backend validates the Supabase JWT on every protected endpoint. The user's ID is extracted from the validated token, never from the request body or query params.
-
-**No raw_text in API responses:** The extracted PDF text is stored in the database for analysis but never returned to the frontend. The frontend only receives structured clause data.
-
-**Environment variables only:** No secrets in code. The backend reads `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, and `GEMINI_API_KEY` from environment variables. The frontend reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` — the anon key is safe to expose, it is rate-limited and scoped by RLS.
-
-**CORS locked down:** The FastAPI CORS configuration explicitly lists allowed origins. Not `*`.
+- **Repository** — all database queries live in `*_repository.py` classes. Route handlers call methods, not raw SQL, so a schema change touches one file.
+- **Service layer** — the real work (PDF extraction, LLM calls, risk scoring) lives in services. Route handlers just validate input, call a service, and return the result.
+- **Strategy** — the `LLMProvider` interface described above. The whole point is that swapping the AI backend is a config change, and the rest of the code never has to know which provider it's talking to.
 
 ---
 
-## Design System
+## Design tokens
 
-The UI uses a single source of truth for all visual decisions: `tailwind.config.ts`. The color palette is defined there as semantic tokens:
+Everything visual is defined once, in `tailwind.config.ts`:
 
 ```
-primary       — main brand color, used for CTAs and active states
-surface       — card and panel backgrounds
-background    — page background
-border        — all border colors
-text-primary  — main body text
-text-muted    — secondary text, labels, captions
-risk-high     — red, used for high severity badges
-risk-medium   — amber, used for medium severity badges
-risk-low      — green, used for low severity badges
+primary        main brand color (buttons, active states)
+surface        card / panel backgrounds
+background     page background
+border         borders
+text-primary   body text
+text-muted     labels, captions, secondary text
+risk-high      red    (high severity)
+risk-medium    amber  (medium severity)
+risk-low       green  (low severity)
 ```
 
-To change the entire application's color palette: edit these values in `tailwind.config.ts`. Nothing else changes. Components reference semantic tokens, never raw color values like `blue-500`.
-
-Typography follows the same principle — font families are defined in `tailwind.config.ts` and referenced as `font-display` and `font-body` throughout.
+Change a value here and the whole app updates. Fonts work the same way (`font-display`, `font-body`).
 
 ---
 
-## Design Patterns Used
-
-Two patterns are used here because they genuinely simplify the code, not because patterns are good in themselves.
-
-**Repository Pattern (backend):** Database queries are isolated in repository classes (`VendorRepository`, `ContractRepository`, `ClauseRiskRepository`). Route handlers call repository methods, not raw SQL. This means if the database changes, only repository files change — not route handlers. It also makes the query logic testable in isolation.
-
-**Service Layer (backend):** Business logic — PDF extraction, Gemini API calls, risk aggregation — lives in service classes, not route handlers. Route handlers do three things: validate input, call a service, return a response. Services do the work. This separation means the Gemini analysis logic can be tested or swapped without touching the API layer.
-
-These patterns are called out explicitly because they reflect real engineering judgment — using structure where it adds clarity, not everywhere by default.
-
----
-
-## Project Structure
+## Project layout
 
 ```
 contractscan/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                  # FastAPI app, CORS, router registration
-│   │   ├── config.py                # Environment variable loading (pydantic-settings)
-│   │   ├── dependencies.py          # Auth middleware, get_current_user
-│   │   ├── database.py              # Supabase client initialization
+│   │   ├── main.py                  FastAPI app, CORS, startup log, routers
+│   │   ├── config.py                env settings (pydantic-settings)
+│   │   ├── dependencies.py          auth, get_current_user
+│   │   ├── database.py              Supabase client
 │   │   ├── routers/
-│   │   │   ├── auth.py              # Login, register, logout
-│   │   │   ├── vendors.py           # CRUD for vendors
-│   │   │   ├── contracts.py         # Upload, list, delete contracts
-│   │   │   └── analysis.py          # Trigger analysis, get results
+│   │   │   ├── auth.py              login, register, logout
+│   │   │   ├── vendors.py          vendor CRUD
+│   │   │   ├── contracts.py        upload, list, delete
+│   │   │   ├── analysis.py         trigger analysis, fetch results
+│   │   │   └── dashboard.py        portfolio overview
 │   │   ├── repositories/
 │   │   │   ├── vendor_repository.py
 │   │   │   ├── contract_repository.py
 │   │   │   └── clause_risk_repository.py
 │   │   ├── services/
-│   │   │   ├── pdf_extractor.py     # pdfplumber text extraction
-│   │   │   ├── gemini_analyzer.py   # Two-pass Gemini analysis
-│   │   │   └── risk_aggregator.py   # Portfolio-level risk scoring
+│   │   │   ├── pdf_extractor.py     pdfplumber extraction + text cleanup
+│   │   │   ├── llm_analyzer.py      the two-pass analysis (provider-agnostic)
+│   │   │   ├── risk_aggregator.py   portfolio-level risk scoring
+│   │   │   └── llm/
+│   │   │       ├── base.py          LLMProvider interface
+│   │   │       ├── factory.py       picks the provider from LLM_PROVIDER
+│   │   │       ├── anthropic_provider.py
+│   │   │       └── openai_provider.py
 │   │   └── schemas/
+│   │       ├── auth.py
 │   │       ├── vendor.py
 │   │       ├── contract.py
-│   │       └── clause_risk.py
+│   │       ├── clause_risk.py
+│   │       └── dashboard.py
 │   ├── requirements.txt
 │   └── .env.example
 ├── frontend/
 │   ├── src/
 │   │   ├── main.tsx
-│   │   ├── App.tsx                  # Router setup
+│   │   ├── App.tsx                  routing
 │   │   ├── lib/
-│   │   │   ├── supabase.ts          # Supabase client
-│   │   │   └── api.ts               # Axios instance with auth headers
+│   │   │   ├── supabase.ts
+│   │   │   ├── api.ts               axios instance with auth header
+│   │   │   └── utils.ts
 │   │   ├── hooks/
-│   │   │   ├── useAuth.ts
+│   │   │   ├── useAuth.tsx
 │   │   │   ├── useVendors.ts
-│   │   │   └── useContracts.ts
+│   │   │   ├── useVendorRisk.ts
+│   │   │   ├── useContracts.ts
+│   │   │   └── useDashboard.ts
 │   │   ├── components/
+│   │   │   ├── ErrorBoundary.tsx
 │   │   │   ├── layout/
-│   │   │   │   ├── Sidebar.tsx
-│   │   │   │   └── TopBar.tsx
 │   │   │   ├── vendors/
-│   │   │   │   ├── VendorCard.tsx
-│   │   │   │   └── VendorForm.tsx
 │   │   │   ├── contracts/
-│   │   │   │   ├── ContractUpload.tsx
-│   │   │   │   └── ContractList.tsx
-│   │   │   └── analysis/
-│   │   │       ├── RiskBadge.tsx
-│   │   │       ├── ClauseCard.tsx
-│   │   │       └── RiskSummaryBar.tsx
+│   │   │   ├── analysis/            RiskBadge, ClauseCard, summary bar
+│   │   │   └── ui/                  shadcn components
 │   │   └── pages/
 │   │       ├── LoginPage.tsx
 │   │       ├── RegisterPage.tsx
-│   │       ├── DashboardPage.tsx    # Portfolio overview, all vendors ranked by risk
-│   │       └── VendorDetailPage.tsx # All contracts + clauses for one vendor
-│   ├── tailwind.config.ts           # Single source of truth for design tokens
+│   │       ├── DashboardPage.tsx    all vendors ranked by risk
+│   │       └── VendorDetailPage.tsx contracts + clauses for one vendor
+│   ├── tailwind.config.ts           design tokens
 │   ├── index.html
 │   └── .env.example
 └── README.md
@@ -272,80 +286,43 @@ contractscan/
 
 ---
 
-## Development Workflow
-
-Features are built and committed one at a time in this order:
-
-1. Project scaffolding and environment setup
-2. Supabase schema, RLS policies, and storage bucket
-3. Authentication (register, login, logout, protected routes)
-4. Vendor CRUD (create, list, edit, delete)
-5. Contract upload (PDF storage, metadata saved, status: pending)
-6. PDF extraction and Gemini two-pass analysis pipeline
-7. Risk dashboard — vendor detail page with clause cards
-8. Portfolio overview — all vendors ranked by risk score
-9. UI polish, loading states, error handling
-10. Deployment (Railway + Vercel)
-
-Each feature is committed to GitHub before the next begins. This keeps the git history readable and makes it easy to demo any intermediate state of the project.
-
----
-
-## Deployment
-
-**Backend → Railway**
-Connect the GitHub repo, set environment variables in the Railway dashboard, deploy. Railway detects the Python project and runs it automatically. Estimated cost: ~$5/month.
-
-**Frontend → Vercel**
-Connect the GitHub repo, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in Vercel environment variables, deploy. Free tier is sufficient.
-
-**Database + Storage → Supabase**
-Free tier covers this project comfortably: 500MB database, 1GB storage, 50MB file upload limit per file.
-
-**Total estimated monthly cost: ~$5**
-
----
-
-## Running Locally
+## Running it locally
 
 ```bash
 # Backend
 cd backend
-python -m venv venv
-source venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env  # fill in your keys
+cp .env.example .env          # fill in your keys (see below)
 uvicorn app.main:app --reload
 
 # Frontend
 cd frontend
 npm install
-cp .env.example .env  # fill in your Supabase keys
+cp .env.example .env          # fill in your Supabase keys
 npm run dev
 ```
 
----
-
-## Test Data
-
-Contracts for testing come from public sources:
-
-- **SEC EDGAR** (https://www.sec.gov/cgi-bin/browse-edgar) — public companies file real vendor agreements, SaaS contracts, and partnership agreements as exhibits. Search for "10-K" or "8-K" filings and look for Exhibit 10 attachments.
-- **CommonPaper** (https://commonpaper.com) — open-source standard contracts including Cloud Service Agreements and NDAs.
-- **Contract Standards** (https://www.contractstandards.com) — annotated sample contracts across many categories.
-
-These are real, varied, legally complex contracts. Testing against SEC EDGAR filings specifically means testing against contracts that were actually signed by real companies — a meaningful quality bar.
+For the backend `.env`, set `LLM_PROVIDER` to `anthropic` or `openai` and provide the matching key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`). Set `USE_MOCK_GEMINI=true` if you want to run the pipeline without calling any AI API.
 
 ---
 
-## What This Project Demonstrates
+## Deployment
 
-For anyone evaluating this project technically:
+The intended setup:
 
-- Agentic AI pipeline design (multi-pass extraction, structured JSON output, parallel async execution)
-- LLM prompt engineering for reliable structured output from unstructured legal text
-- Security-first architecture (RLS, JWT validation, UUID storage paths, no secrets in code)
-- Clean separation of concerns (repository pattern, service layer, thin route handlers)
-- Design system thinking (semantic tokens, single config file controls entire palette)
-- Full-stack TypeScript/Python integration with proper type safety end-to-end
-- Real deployment with cost-conscious infrastructure choices
+- **Backend → Railway** — connect the repo, set the environment variables, deploy. Roughly $5/month.
+- **Frontend → Vercel** — connect the repo, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, deploy. Free tier is fine.
+- **Database + storage → Supabase** — the free tier (500 MB database, 1 GB storage) covers this comfortably.
+
+---
+
+## Test contracts
+
+Real contracts to test against, from public sources:
+
+- **SEC EDGAR** — public companies attach real vendor and SaaS agreements as exhibits to their filings. Look for Exhibit 10 attachments on 10-K or 8-K filings. These were actually signed by real companies, which makes them a solid test set.
+- **CommonPaper** — open-source standard agreements (cloud service agreements, NDAs).
+- **Contract Standards** — annotated sample contracts across categories.
+```
