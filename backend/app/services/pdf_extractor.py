@@ -9,10 +9,18 @@ rather than crash.
 
 import io
 import logging
+import re
 
 import pdfplumber
 
 logger = logging.getLogger(__name__)
+
+# Control characters that PostgreSQL's text type rejects (NUL) or that are
+# otherwise non-printable noise from PDF extraction. We drop the C0/C1 control
+# ranges and DEL, but keep tab, newline, and carriage return since those carry
+# real layout. NUL (\x00) is the one Postgres outright refuses; the rest are
+# stripped for cleanliness.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 
 
 class PdfExtractionError(Exception):
@@ -34,7 +42,14 @@ def extract_text(pdf_bytes: bytes) -> str:
         logger.exception("Failed to open or read PDF")
         raise PdfExtractionError("Could not read the PDF file.") from exc
 
-    text = "\n\n".join(part for part in pages if part).strip()
+    text = "\n\n".join(part for part in pages if part)
+
+    # Strip NUL (which PostgreSQL's text type rejects) and other non-printable
+    # control characters before persisting. Done after the join so the empty
+    # check below reflects the cleaned text.
+    text = text.replace("\x00", "")
+    text = _CONTROL_CHARS_RE.sub("", text).strip()
+
     if not text:
         # Likely a scanned/image-only PDF — there is nothing to analyze.
         raise PdfExtractionError(

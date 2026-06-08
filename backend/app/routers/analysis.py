@@ -21,7 +21,7 @@ from app.dependencies import get_current_user
 from app.repositories.clause_risk_repository import ClauseRiskRepository
 from app.repositories.contract_repository import ContractRepository
 from app.schemas.clause_risk import AnalysisStartResponse, ContractAnalysisResponse
-from app.services.gemini_analyzer import analyze_contract
+from app.services.llm_analyzer import analyze_contract
 from app.services.pdf_extractor import extract_text
 
 logger = logging.getLogger(__name__)

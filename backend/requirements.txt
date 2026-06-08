@@ -2,12 +2,8 @@ fastapi==0.111.0
 uvicorn[standard]==0.30.1
 python-multipart==0.0.9
 pdfplumber==0.11.0
-# 0.8.3 (and its protobuf 5.x dep) is required for Python 3.14 — the spec-pinned
-# 0.7.2 transitively forces protobuf <5, which fails to import on 3.13+.
-# Also note: the spec's gemini-1.5-flash now 404s on the API, so gemini_analyzer.py
-# uses gemini-2.0-flash instead.
-google-generativeai==0.8.3
-protobuf==5.29.6
+anthropic==0.69.0
+openai==1.40.0
 supabase==2.5.0
 pydantic-settings==2.3.4
 httpx==0.27.0

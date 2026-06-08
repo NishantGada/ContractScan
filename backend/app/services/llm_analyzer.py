@@ -1,9 +1,13 @@
-"""Two-pass contract risk analysis with Gemini.
+"""Two-pass contract risk analysis, LLM-provider-agnostic.
 
 Pass 1 reads the whole contract and extracts every clause that falls into one of
 the known risk categories. Pass 2 assesses each extracted clause independently —
 all Pass 2 calls run concurrently via `asyncio.gather`, so total time is
 Pass 1 + the slowest single Pass 2 call, not their sum.
+
+The model is reached only through an `LLMProvider` (see `app.services.llm`); this
+module calls `provider.generate(prompt)` and nothing vendor-specific. Which model
+runs is decided by the `LLM_PROVIDER` env var, not by anything here.
 
 Robustness is deliberate: the model is asked for raw JSON, but we still strip
 stray markdown fences and tolerate a parse failure on any individual clause by
@@ -15,14 +19,10 @@ import json
 import logging
 import re
 
-import google.generativeai as genai
-
 from app.config import settings
+from app.services.llm import LLMProvider, get_llm_provider
 
 logger = logging.getLogger(__name__)
-
-# gemini-1.5-flash now 404s on the API; gemini-2.0-flash is the current flash model.
-_MODEL_NAME = "gemini-2.0-flash"
 
 # The category keys the model is allowed to emit (mirrors the Pass 1 prompt).
 _VALID_CLAUSE_TYPES = {
@@ -154,26 +154,15 @@ def _strip_fences(text: str) -> str:
     return cleaned.strip()
 
 
-def _model() -> genai.GenerativeModel:
-    """Configure the SDK from settings and return the flash model.
-
-    `configure` is process-global and idempotent; doing it here keeps the API
-    key out of import-time side effects (so importing this module never requires
-    a key to be present).
-    """
-    genai.configure(api_key=settings.GEMINI_API_KEY)
-    return genai.GenerativeModel(_MODEL_NAME)
-
-
 async def _extract_clauses(
-    model: genai.GenerativeModel, contract_text: str
+    provider: LLMProvider, contract_text: str
 ) -> list[dict]:
     """Pass 1 — pull every risky clause out of the contract as {type, text}."""
     prompt = _PASS_1_PROMPT.replace("__CONTRACT_TEXT__", contract_text)
-    response = await model.generate_content_async(prompt)
+    response_text = await provider.generate(prompt)
 
     try:
-        parsed = json.loads(_strip_fences(response.text))
+        parsed = json.loads(_strip_fences(response_text))
     except (json.JSONDecodeError, ValueError):
         logger.exception("Pass 1 returned unparseable JSON")
         return []
@@ -199,9 +188,7 @@ async def _extract_clauses(
     return clauses
 
 
-async def _assess_clause(
-    model: genai.GenerativeModel, clause: dict
-) -> dict | None:
+async def _assess_clause(provider: LLMProvider, clause: dict) -> dict | None:
     """Pass 2 — assess one clause. Returns a full risk dict, or None on failure
     (logged and skipped so it can't crash the gathered batch)."""
     prompt = (
@@ -210,8 +197,8 @@ async def _assess_clause(
         )
     )
     try:
-        response = await model.generate_content_async(prompt)
-        parsed = json.loads(_strip_fences(response.text))
+        response_text = await provider.generate(prompt)
+        parsed = json.loads(_strip_fences(response_text))
     except Exception:  # noqa: BLE001 — a bad clause is logged and skipped, never fatal
         logger.exception("Pass 2 failed for clause_type=%s", clause["clause_type"])
         return None
@@ -248,14 +235,14 @@ async def analyze_contract(contract_text: str) -> list[dict]:
         logger.warning("USE_MOCK_GEMINI is on — returning mocked clause risks")
         return [dict(risk) for risk in _MOCK_CLAUSE_RISKS]
 
-    model = _model()
+    provider = get_llm_provider()
 
-    clauses = await _extract_clauses(model, contract_text)
+    clauses = await _extract_clauses(provider, contract_text)
     if not clauses:
         return []
 
     # All Pass 2 calls run concurrently.
     assessments = await asyncio.gather(
-        *(_assess_clause(model, clause) for clause in clauses)
+        *(_assess_clause(provider, clause) for clause in clauses)
     )
     return [risk for risk in assessments if risk is not None]

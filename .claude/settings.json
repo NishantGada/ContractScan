@@ -13,7 +13,19 @@
       "Bash(echo \"grep-exit: $?\")",
       "Bash(python -c \"from app.main import app; print\\('routes:', [r.path for r in app.routes if 'dashboard' in r.path]\\)\")",
       "Bash(.venv/bin/python -c \"from app.main import app; print\\('dashboard routes:', [\\(r.path, list\\(r.methods\\)\\) for r in app.routes if r.path.startswith\\('/dashboard'\\)]\\)\")",
-      "Bash(cd frontend *)"
+      "Bash(cd frontend *)",
+      "Bash(cat requirements.txt)",
+      "Bash(cat .env.example)",
+      "Bash(git mv *)",
+      "Bash(python -m py_compile app/services/llm_analyzer.py app/routers/analysis.py app/config.py)",
+      "Bash(python -c \"import openai; print\\('openai', openai.__version__\\)\")",
+      "Bash(.venv/bin/python -m pip install \"openai==1.40.0\")",
+      "Bash(.venv/bin/python -c \"import app.services.llm_analyzer as m; from app.routers import analysis; print\\('IMPORT OK', m._MODEL_NAME\\)\")",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Bash(.venv/bin/python -m pip install \"anthropic==0.69.0\")",
+      "Bash(.venv/bin/python -m py_compile app/main.py)",
+      "Bash(python3 -c \"import json; json.load\\(open\\('.claude/settings.json'\\)\\); print\\('settings.json: valid JSON'\\)\")"
     ]
   }
 }
