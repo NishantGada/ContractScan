@@ -12,7 +12,8 @@
       "Bash(rm src/components/vendors/VendorCard.tsx)",
       "Bash(echo \"grep-exit: $?\")",
       "Bash(python -c \"from app.main import app; print\\('routes:', [r.path for r in app.routes if 'dashboard' in r.path]\\)\")",
-      "Bash(.venv/bin/python -c \"from app.main import app; print\\('dashboard routes:', [\\(r.path, list\\(r.methods\\)\\) for r in app.routes if r.path.startswith\\('/dashboard'\\)]\\)\")"
+      "Bash(.venv/bin/python -c \"from app.main import app; print\\('dashboard routes:', [\\(r.path, list\\(r.methods\\)\\) for r in app.routes if r.path.startswith\\('/dashboard'\\)]\\)\")",
+      "Bash(cd frontend *)"
     ]
   }
 }

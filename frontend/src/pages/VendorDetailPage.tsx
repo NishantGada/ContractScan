@@ -4,7 +4,12 @@ import { ArrowLeft, ExternalLink } from 'lucide-react'
 
 import { useAuth } from '@/hooks/useAuth'
 import { useVendors } from '@/hooks/useVendors'
-import { useContracts, type Contract } from '@/hooks/useContracts'
+import {
+  useContracts,
+  type Contract,
+  type ContractStatus,
+  type ContractType,
+} from '@/hooks/useContracts'
 import { useVendorRisk } from '@/hooks/useVendorRisk'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { ContractUpload } from '@/components/contracts/ContractUpload'
@@ -12,11 +17,14 @@ import { ContractList } from '@/components/contracts/ContractList'
 import { RiskSummaryBar } from '@/components/analysis/RiskSummaryBar'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
+import { Skeleton } from '@/components/ui/skeleton'
+import { useToast } from '@/components/ui/toast'
 
 export default function VendorDetailPage() {
   const { vendorId = '' } = useParams()
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  const { toast } = useToast()
 
   const { vendors, loading: vendorsLoading } = useVendors()
   const vendor = vendors.find((v) => v.id === vendorId) ?? null
@@ -53,15 +61,58 @@ export default function VendorDetailPage() {
     }
   }, [analysisSignature, refetchRisk])
 
+  // Toast when a contract's analysis settles. We diff each contract's status
+  // against its previous value so a transition into done/failed fires exactly
+  // once — first-seen contracts (no prior status) are skipped, so the initial
+  // load and freshly-uploaded contracts never trigger a spurious toast.
+  const prevStatusesRef = useRef<Record<string, ContractStatus>>({})
+  useEffect(() => {
+    const prev = prevStatusesRef.current
+    for (const c of contracts) {
+      const before = prev[c.id]
+      if (before && before !== c.status) {
+        if (c.status === 'done') {
+          toast({
+            variant: 'success',
+            title: 'Analysis complete',
+            description: `“${c.filename}” has been analyzed.`,
+          })
+        } else if (c.status === 'failed') {
+          toast({
+            variant: 'error',
+            title: 'Analysis failed',
+            description: `Couldn’t analyze “${c.filename}”. You can retry from its card.`,
+          })
+        }
+      }
+    }
+    prevStatusesRef.current = Object.fromEntries(contracts.map((c) => [c.id, c.status]))
+  }, [contracts, toast])
+
   const [pendingDelete, setPendingDelete] = useState<Contract | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  async function handleUpload(input: { file: File; contractType: ContractType | null }) {
+    // ContractUpload shows its own inline error if this throws, so only toast on success.
+    const created = await uploadContract(input)
+    toast({
+      variant: 'success',
+      title: 'Contract uploaded',
+      description: 'Analysis has started — risks will appear when it finishes.',
+    })
+    return created
+  }
+
   async function confirmDelete() {
     if (!pendingDelete) return
+    const filename = pendingDelete.filename
     setDeleting(true)
     try {
       await deleteContract(pendingDelete.id)
       setPendingDelete(null)
+      toast({ variant: 'success', title: 'Contract deleted', description: `“${filename}” was removed.` })
+    } catch {
+      toast({ variant: 'error', title: 'Could not delete contract', description: 'Please try again.' })
     } finally {
       setDeleting(false)
     }
@@ -105,7 +156,14 @@ export default function VendorDetailPage() {
           </Link>
 
           {vendorsLoading && !vendor ? (
-            <p className="mt-8 text-sm text-text-muted">Loading vendor…</p>
+            <div className="mt-8 space-y-8" aria-busy="true" aria-label="Loading vendor">
+              <div className="space-y-3">
+                <Skeleton className="h-9 w-64" />
+                <Skeleton className="h-4 w-40" />
+              </div>
+              <Skeleton className="h-28 w-full rounded-lg" />
+              <Skeleton className="h-40 w-full rounded-lg" />
+            </div>
           ) : !vendor ? (
             <div className="mt-8 rounded-lg border border-dashed border-border bg-surface px-6 py-16 text-center">
               <h1 className="font-display text-xl font-medium text-text-primary">
@@ -158,7 +216,7 @@ export default function VendorDetailPage() {
                   Upload a contract
                 </h2>
                 <div className="mt-4">
-                  <ContractUpload onUpload={uploadContract} />
+                  <ContractUpload onUpload={handleUpload} />
                 </div>
               </section>
 
@@ -168,7 +226,22 @@ export default function VendorDetailPage() {
                 </h2>
                 <div className="mt-4">
                   {contractsLoading ? (
-                    <p className="text-sm text-text-muted">Loading contracts…</p>
+                    <ul
+                      className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface"
+                      aria-busy="true"
+                      aria-label="Loading contracts"
+                    >
+                      {Array.from({ length: 3 }).map((_, i) => (
+                        <li key={i} className="flex items-center gap-4 px-5 py-4">
+                          <Skeleton className="h-5 w-5 shrink-0 rounded" />
+                          <div className="flex-1 space-y-2">
+                            <Skeleton className="h-4 w-56" />
+                            <Skeleton className="h-3 w-40" />
+                          </div>
+                          <Skeleton className="h-6 w-20 rounded-full" />
+                        </li>
+                      ))}
+                    </ul>
                   ) : error ? (
                     <p role="alert" className="text-sm text-risk-high">
                       {error}

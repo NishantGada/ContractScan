@@ -10,6 +10,8 @@ import { VendorRiskRow } from '@/components/vendors/VendorRiskRow'
 import { VendorForm } from '@/components/vendors/VendorForm'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
+import { Skeleton } from '@/components/ui/skeleton'
+import { useToast } from '@/components/ui/toast'
 
 // Headline stats shown across the top of the portfolio overview.
 const STATS = [
@@ -21,6 +23,7 @@ const STATS = [
 export default function DashboardPage() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const { toast } = useToast()
   // useDashboard drives the ranked portfolio view; useVendors owns the sidebar
   // list and the create/edit/delete mutations. After any mutation we refetch the
   // dashboard so risk rankings and totals stay in sync.
@@ -43,21 +46,28 @@ export default function DashboardPage() {
   }
 
   async function handleSubmit(input: VendorInput) {
+    // The form shows its own inline error if these throw, so only toast on success.
     if (editing) {
       await updateVendor(editing.id, input)
+      toast({ variant: 'success', title: 'Vendor updated', description: `“${input.name}” saved.` })
     } else {
       await createVendor(input)
+      toast({ variant: 'success', title: 'Vendor added', description: `“${input.name}” is ready for contracts.` })
     }
     await refetch()
   }
 
   async function confirmDelete() {
     if (!pendingDelete) return
+    const name = pendingDelete.name
     setDeleting(true)
     try {
       await deleteVendor(pendingDelete.id)
       await refetch()
       setPendingDelete(null)
+      toast({ variant: 'success', title: 'Vendor deleted', description: `“${name}” and its contracts were removed.` })
+    } catch {
+      toast({ variant: 'error', title: 'Could not delete vendor', description: 'Please try again.' })
     } finally {
       setDeleting(false)
     }
@@ -116,16 +126,33 @@ export default function DashboardPage() {
                 <p className="font-mono text-xs uppercase tracking-wide text-text-muted">
                   {label}
                 </p>
-                <p className="mt-1 font-display text-3xl font-semibold text-text-primary">
-                  {totals ? totals[key] : '—'}
-                </p>
+                {loading ? (
+                  <Skeleton className="mt-2 h-8 w-12" />
+                ) : (
+                  <p className="mt-1 font-display text-3xl font-semibold text-text-primary">
+                    {totals ? totals[key] : '—'}
+                  </p>
+                )}
               </div>
             ))}
           </section>
 
           <section className="mt-8">
             {loading ? (
-              <p className="text-sm text-text-muted">Loading portfolio…</p>
+              <div className="flex flex-col gap-4" aria-busy="true" aria-label="Loading portfolio">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between rounded-lg border border-border bg-surface p-5"
+                  >
+                    <div className="flex-1 space-y-2.5">
+                      <Skeleton className="h-5 w-48" />
+                      <Skeleton className="h-3.5 w-32" />
+                    </div>
+                    <Skeleton className="h-6 w-24" />
+                  </div>
+                ))}
+              </div>
             ) : error ? (
               <p role="alert" className="text-sm text-risk-high">
                 {error}
